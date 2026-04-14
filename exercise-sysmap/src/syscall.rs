@@ -359,14 +359,85 @@ fn sys_brk(addr: usize) -> isize {
 }
 
 fn sys_mmap(
-    _addr: *mut c_void,
-    _length: usize,
-    _prot: i32,
-    _flags: i32,
-    _fd: i32,
-    _offset: isize,
+    addr: *mut c_void,
+    length: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: isize,
 ) -> isize {
-    unimplemented!("no sys_mmap!");
+    use alloc::sync::Arc;
+    use memory_addr::{PAGE_SIZE_4K, VirtAddr, VirtAddrRange};
+
+    let mmap_flags = MmapFlags::from_bits_truncate(flags);
+    let mmap_prot = MmapProt::from_bits_truncate(prot);
+    let mapping_flags: MappingFlags = mmap_prot.into();
+
+    if length == 0 {
+        return neg_errno(LinuxError::EINVAL);
+    }
+
+    // Round length up to page size
+    let length_aligned = (length + PAGE_SIZE_4K - 1) & !(PAGE_SIZE_4K - 1);
+
+    // Get user address space: USER_ASPACE is Mutex<Option<Arc<Mutex<AddrSpace>>>>
+    let uspace_arc = {
+        let outer = crate::USER_ASPACE.lock();
+        match outer.as_ref() {
+            Some(arc) => Arc::clone(arc),
+            None => return neg_errno(LinuxError::ENOMEM),
+        }
+    };
+
+    let mut uspace = uspace_arc.lock();
+
+    // Find a free area for the mapping
+    let hint = if addr.is_null() {
+        uspace.base()
+    } else {
+        VirtAddr::from(addr as usize)
+    };
+    // Never allow mmap to return address 0 — skip the NULL page
+    let hint = VirtAddr::from(hint.as_usize().max(PAGE_SIZE_4K));
+    let limit = VirtAddrRange::from_start_size(uspace.base(), uspace.size());
+    let start = match uspace.find_free_area(hint, length_aligned, limit) {
+        Some(va) => va,
+        None => return neg_errno(LinuxError::ENOMEM),
+    };
+
+    // Allocate and map memory
+    if uspace
+        .map_alloc(start, length_aligned, mapping_flags, true)
+        .is_err()
+    {
+        return neg_errno(LinuxError::ENOMEM);
+    }
+
+    // Handle file-backed mapping (non-anonymous with valid fd)
+    if !mmap_flags.contains(MmapFlags::MAP_ANONYMOUS) && fd >= 0 {
+        if offset < 0 {
+            return neg_errno(LinuxError::EINVAL);
+        }
+        let mut buf = alloc::vec![0u8; length];
+        let read_result = with_file_fd(fd, |file| {
+            match file.read_at(offset as u64, &mut buf) {
+                Ok(n) => Ok(n),
+                Err(e) => Err(LinuxError::from(e)),
+            }
+        });
+        match read_result {
+            Ok(n) => {
+                if n > 0 {
+                    if uspace.write(start, &buf[..n]).is_err() {
+                        return neg_errno(LinuxError::EIO);
+                    }
+                }
+            }
+            Err(e) => return neg_errno(e),
+        }
+    }
+
+    start.as_usize() as isize
 }
 
 #[cfg(target_arch = "x86_64")]
