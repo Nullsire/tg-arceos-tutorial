@@ -444,13 +444,12 @@ dependencies = [
 [[package]]
 name = "axstd"
 version = "0.3.0-preview.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71913df85aaaa1f5d89e920d92f85457fbb2c1dcdac3b736c3e92fa5ac4de86a"
 dependencies = [
  "arceos_api",
  "axerrno 0.2.2",
  "axfeat",
  "axio",
+ "hashbrown",
  "kspin",
  "lazyinit",
  "lock_api",
@@ -709,6 +708,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f95f0bda5ff920492f6573294d8e3a99b75ee2e5ef93ab313fc6d517fa46785"
 
 [[package]]
+name = "foldhash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -722,6 +727,10 @@ name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+dependencies = [
+ "equivalent",
+ "foldhash",
+]
 
 [[package]]
 name = "heapless"
